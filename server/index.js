@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { PrismaClient } from '@prisma/client';
+import pkg from '@prisma/client';
+const { PrismaClient } = pkg;
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -49,48 +50,47 @@ app.get('/api/personas', async (req, res) => {
     const limit = 18;
     const skip = (page - 1) * limit;
 
-    const where = search ? {
-      OR: [
-        { nombre: { contains: search, mode: 'insensitive' } },
-        { apellido: { contains: search, mode: 'insensitive' } }
-      ]
-    } : {};
+    const where = search
+      ? {
+          OR: [
+            { nombre: { contains: search, mode: 'insensitive' } },
+            { apellido: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : {};
 
     const [personas, total] = await Promise.all([
       prisma.per.findMany({
         where,
         skip,
         take: limit,
-        orderBy: [
-          { nombre: 'asc' },
-          { apellido: 'asc' }
-        ],
+        orderBy: [{ nombre: 'asc' }, { apellido: 'asc' }],
         include: {
           faces: {
             include: {
-              face: true
-            }
-          }
-        }
+              face: true,
+            },
+          },
+        },
       }),
-      prisma.per.count({ where })
+      prisma.per.count({ where }),
     ]);
 
     const totalPages = Math.ceil(total / limit);
 
     res.json({
-      personas: personas.map(persona => ({
+      personas: personas.map((persona) => ({
         ...persona,
-        activeFaces: persona.faces.filter(pf => pf.face.activo).length,
-        totalFaces: persona.faces.length
+        activeFaces: persona.faces.filter((pf) => pf.face.activo).length,
+        totalFaces: persona.faces.length,
       })),
       pagination: {
         currentPage: page,
         totalPages,
         totalItems: total,
         hasNext: page < totalPages,
-        hasPrev: page > 1
-      }
+        hasPrev: page > 1,
+      },
     });
   } catch (error) {
     console.error('Error fetching personas:', error);
@@ -102,14 +102,14 @@ app.get('/api/personas', async (req, res) => {
 app.post('/api/enroll/:personaID', upload.single('image'), async (req, res) => {
   try {
     const personaID = parseInt(req.params.personaID);
-    
+
     if (!req.file) {
       return res.status(400).json({ error: 'No image file provided' });
     }
 
     // Verify person exists
     const persona = await prisma.per.findUnique({
-      where: { personaID }
+      where: { personaID },
     });
 
     if (!persona) {
@@ -121,14 +121,14 @@ app.post('/api/enroll/:personaID', upload.single('image'), async (req, res) => {
       // First, deactivate all existing faces for this person
       const existingFaces = await tx.perface.findMany({
         where: { personaID },
-        include: { face: true }
+        include: { face: true },
       });
 
       if (existingFaces.length > 0) {
-        const faceIds = existingFaces.map(pf => pf.facialID);
+        const faceIds = existingFaces.map((pf) => pf.facialID);
         await tx.face.updateMany({
           where: { facialID: { in: faceIds } },
-          data: { activo: false }
+          data: { activo: false },
         });
       }
 
@@ -136,16 +136,16 @@ app.post('/api/enroll/:personaID', upload.single('image'), async (req, res) => {
       const newFace = await tx.face.create({
         data: {
           templateData: req.file.buffer,
-          activo: true
-        }
+          activo: true,
+        },
       });
 
       // Associate face with person
       await tx.perface.create({
         data: {
           personaID,
-          facialID: newFace.facialID
-        }
+          facialID: newFace.facialID,
+        },
       });
 
       return newFace;
@@ -156,9 +156,15 @@ app.post('/api/enroll/:personaID', upload.single('image'), async (req, res) => {
     let hikvisionError = null;
 
     try {
-      const personName = `${persona.nombre || ''} ${persona.apellido || ''}`.trim() || `Person_${personaID}`;
-      hikvisionResult = await hikvisionService.enrollFace(personaID, req.file.buffer, personName);
-      
+      const personName =
+        `${persona.nombre || ''} ${persona.apellido || ''}`.trim() ||
+        `Person_${personaID}`;
+      hikvisionResult = await hikvisionService.enrollFace(
+        personaID,
+        req.file.buffer,
+        personName
+      );
+
       if (!hikvisionResult.success) {
         hikvisionError = hikvisionResult.error;
         console.warn('Hikvision enrollment failed:', hikvisionResult);
@@ -169,10 +175,10 @@ app.post('/api/enroll/:personaID', upload.single('image'), async (req, res) => {
     }
 
     const deactivatedCount = await prisma.perface.count({
-      where: { 
+      where: {
         personaID,
-        face: { activo: false }
-      }
+        face: { activo: false },
+      },
     });
 
     res.json({
@@ -182,11 +188,13 @@ app.post('/api/enroll/:personaID', upload.single('image'), async (req, res) => {
       deactivatedFaces: deactivatedCount,
       hikvision: {
         success: hikvisionResult?.success || false,
-        message: hikvisionResult?.message || hikvisionError || 'Device enrollment failed',
-        error: hikvisionError
-      }
+        message:
+          hikvisionResult?.message ||
+          hikvisionError ||
+          'Device enrollment failed',
+        error: hikvisionError,
+      },
     });
-
   } catch (error) {
     console.error('Error enrolling face:', error);
     res.status(500).json({ error: 'Failed to enroll face' });
@@ -197,21 +205,21 @@ app.post('/api/enroll/:personaID', upload.single('image'), async (req, res) => {
 app.get('/api/personas/:id', async (req, res) => {
   try {
     const personaID = parseInt(req.params.id);
-    
+
     const persona = await prisma.per.findUnique({
       where: { personaID },
       include: {
         faces: {
           include: {
-            face: true
+            face: true,
           },
           orderBy: {
             face: {
-              createdAt: 'desc'
-            }
-          }
-        }
-      }
+              createdAt: 'desc',
+            },
+          },
+        },
+      },
     });
 
     if (!persona) {
@@ -220,12 +228,12 @@ app.get('/api/personas/:id', async (req, res) => {
 
     res.json({
       ...persona,
-      faces: persona.faces.map(pf => ({
+      faces: persona.faces.map((pf) => ({
         facialID: pf.face.facialID,
         activo: pf.face.activo,
         createdAt: pf.face.createdAt,
-        hasImage: !!pf.face.templateData
-      }))
+        hasImage: !!pf.face.templateData,
+      })),
     });
   } catch (error) {
     console.error('Error fetching person:', error);
@@ -242,7 +250,7 @@ app.get('/api/hikvision/status', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to test Hikvision connection',
-      details: error.message
+      details: error.message,
     });
   }
 });
@@ -256,7 +264,7 @@ app.get('/api/hikvision/capabilities', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get device capabilities',
-      details: error.message
+      details: error.message,
     });
   }
 });
@@ -270,7 +278,7 @@ app.get('/api/hikvision/database', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get face database info',
-      details: error.message
+      details: error.message,
     });
   }
 });
@@ -279,28 +287,32 @@ app.get('/api/hikvision/database', async (req, res) => {
 app.get('/api/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    
+
     // Test Hikvision connection
     const hikvisionStatus = await hikvisionService.testConnection();
-    
-    res.json({ 
-      status: 'healthy', 
+
+    res.json({
+      status: 'healthy',
       database: 'connected',
       hikvision: {
-        configured: !!(process.env.HIKVISION_DEVICE_IP && process.env.HIKVISION_USERNAME),
+        configured: !!(
+          process.env.HIKVISION_DEVICE_IP && process.env.HIKVISION_USERNAME
+        ),
         connected: hikvisionStatus.success,
-        device: process.env.HIKVISION_DEVICE_IP || 'not configured'
-      }
+        device: process.env.HIKVISION_DEVICE_IP || 'not configured',
+      },
     });
   } catch (error) {
-    res.status(500).json({ 
-      status: 'unhealthy', 
+    res.status(500).json({
+      status: 'unhealthy',
       database: 'disconnected',
       hikvision: {
-        configured: !!(process.env.HIKVISION_DEVICE_IP && process.env.HIKVISION_USERNAME),
+        configured: !!(
+          process.env.HIKVISION_DEVICE_IP && process.env.HIKVISION_USERNAME
+        ),
         connected: false,
-        device: process.env.HIKVISION_DEVICE_IP || 'not configured'
-      }
+        device: process.env.HIKVISION_DEVICE_IP || 'not configured',
+      },
     });
   }
 });
@@ -314,10 +326,12 @@ app.get('*', (req, res) => {
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'File too large. Maximum size is 5MB.' });
+      return res
+        .status(400)
+        .json({ error: 'File too large. Maximum size is 5MB.' });
     }
   }
-  
+
   console.error('Unhandled error:', error);
   res.status(500).json({ error: 'Internal server error' });
 });
@@ -325,8 +339,14 @@ app.use((error, req, res, next) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Database provider: ${process.env.DATABASE_URL?.split(':')[0] || 'not configured'}`);
-  console.log(`Hikvision device: ${process.env.HIKVISION_DEVICE_IP || 'not configured'}`);
+  console.log(
+    `Database provider: ${
+      process.env.DATABASE_URL?.split(':')[0] || 'not configured'
+    }`
+  );
+  console.log(
+    `Hikvision device: ${process.env.HIKVISION_DEVICE_IP || 'not configured'}`
+  );
 });
 
 // Graceful shutdown
