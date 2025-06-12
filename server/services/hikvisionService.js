@@ -1,5 +1,6 @@
 import axios from 'axios';
 import crypto from 'crypto';
+import https from 'https';
 
 class HikvisionService {
   constructor() {
@@ -8,16 +9,18 @@ class HikvisionService {
     this.password = process.env.HIKVISION_PASSWORD;
     this.useHttps = process.env.HIKVISION_USE_HTTPS === 'true';
     this.timeout = parseInt(process.env.HIKVISION_TIMEOUT) || 30000;
-    
+
     this.baseURL = `${this.useHttps ? 'https' : 'http'}://${this.deviceIP}`;
-    
+
     // Create axios instance with custom config
     this.client = axios.create({
       timeout: this.timeout,
       // Disable SSL verification for self-signed certificates
-      httpsAgent: this.useHttps ? new (await import('https')).Agent({
-        rejectUnauthorized: false
-      }) : undefined
+      httpsAgent: this.useHttps
+        ? new https.Agent({
+            rejectUnauthorized: false,
+          })
+        : undefined,
     });
   }
 
@@ -35,11 +38,11 @@ class HikvisionService {
     const digest = {};
     const regex = /(\w+)=["']?([^"',]+)["']?/g;
     let match;
-    
+
     while ((match = regex.exec(authHeader)) !== null) {
       digest[match[1]] = match[2];
     }
-    
+
     return digest;
   }
 
@@ -49,16 +52,20 @@ class HikvisionService {
   generateDigestAuth(method, uri, digestParams) {
     const nc = '00000001';
     const cnonce = crypto.randomBytes(16).toString('hex');
-    
+
     // Calculate HA1
-    const ha1 = this.md5(`${this.username}:${digestParams.realm}:${this.password}`);
-    
+    const ha1 = this.md5(
+      `${this.username}:${digestParams.realm}:${this.password}`
+    );
+
     // Calculate HA2
     const ha2 = this.md5(`${method}:${uri}`);
-    
+
     // Calculate response
-    const response = this.md5(`${ha1}:${digestParams.nonce}:${nc}:${cnonce}:${digestParams.qop}:${ha2}`);
-    
+    const response = this.md5(
+      `${ha1}:${digestParams.nonce}:${nc}:${cnonce}:${digestParams.qop}:${ha2}`
+    );
+
     return `Digest username="${this.username}", realm="${digestParams.realm}", nonce="${digestParams.nonce}", uri="${uri}", qop=${digestParams.qop}, nc=${nc}, cnonce="${cnonce}", response="${response}"`;
   }
 
@@ -67,7 +74,7 @@ class HikvisionService {
    */
   async makeAuthenticatedRequest(method, endpoint, data = null, headers = {}) {
     const url = `${this.baseURL}${endpoint}`;
-    
+
     try {
       // First request to get authentication challenge
       const initialResponse = await this.client.request({
@@ -75,19 +82,24 @@ class HikvisionService {
         url,
         data,
         headers,
-        validateStatus: (status) => status === 401 || (status >= 200 && status < 300)
+        validateStatus: (status) =>
+          status === 401 || (status >= 200 && status < 300),
       });
 
       // If we get 401, handle Digest authentication
       if (initialResponse.status === 401) {
         const authHeader = initialResponse.headers['www-authenticate'];
-        
+
         if (!authHeader || !authHeader.includes('Digest')) {
           throw new Error('Device does not support Digest authentication');
         }
 
         const digestParams = this.parseDigestHeader(authHeader);
-        const authHeaderValue = this.generateDigestAuth(method, endpoint, digestParams);
+        const authHeaderValue = this.generateDigestAuth(
+          method,
+          endpoint,
+          digestParams
+        );
 
         // Make authenticated request
         const authenticatedResponse = await this.client.request({
@@ -96,8 +108,8 @@ class HikvisionService {
           data,
           headers: {
             ...headers,
-            'Authorization': authHeaderValue
-          }
+            Authorization: authHeaderValue,
+          },
         });
 
         return authenticatedResponse;
@@ -106,9 +118,13 @@ class HikvisionService {
       return initialResponse;
     } catch (error) {
       if (error.code === 'ECONNREFUSED') {
-        throw new Error(`Cannot connect to Hikvision device at ${this.deviceIP}`);
+        throw new Error(
+          `Cannot connect to Hikvision device at ${this.deviceIP}`
+        );
       } else if (error.code === 'ETIMEDOUT') {
-        throw new Error(`Connection timeout to Hikvision device at ${this.deviceIP}`);
+        throw new Error(
+          `Connection timeout to Hikvision device at ${this.deviceIP}`
+        );
       }
       throw error;
     }
@@ -119,17 +135,20 @@ class HikvisionService {
    */
   async testConnection() {
     try {
-      const response = await this.makeAuthenticatedRequest('GET', '/ISAPI/System/deviceInfo');
+      const response = await this.makeAuthenticatedRequest(
+        'GET',
+        '/ISAPI/System/deviceInfo'
+      );
       return {
         success: true,
         deviceInfo: response.data,
-        status: response.status
+        status: response.status,
       };
     } catch (error) {
       return {
         success: false,
         error: error.message,
-        details: error.response?.data || null
+        details: error.response?.data || null,
       };
     }
   }
@@ -139,16 +158,19 @@ class HikvisionService {
    */
   async getFaceDatabase() {
     try {
-      const response = await this.makeAuthenticatedRequest('GET', '/ISAPI/Intelligent/FDLib');
+      const response = await this.makeAuthenticatedRequest(
+        'GET',
+        '/ISAPI/Intelligent/FDLib'
+      );
       return {
         success: true,
-        data: response.data
+        data: response.data,
       };
     } catch (error) {
       return {
         success: false,
         error: error.message,
-        details: error.response?.data || null
+        details: error.response?.data || null,
       };
     }
   }
@@ -160,7 +182,7 @@ class HikvisionService {
     try {
       // Convert image buffer to base64
       const imageBase64 = imageBuffer.toString('base64');
-      
+
       // Prepare face data according to Hikvision ISAPI specification
       const faceData = {
         faceLibType: 'blackFD',
@@ -169,7 +191,7 @@ class HikvisionService {
         name: personName || `Person_${personId}`,
         bornTime: new Date().toISOString().split('T')[0], // Current date as birth date
         sex: 'unknown',
-        faceURL: `data:image/jpeg;base64,${imageBase64}`
+        faceURL: `data:image/jpeg;base64,${imageBase64}`,
       };
 
       // Send face enrollment request
@@ -179,7 +201,7 @@ class HikvisionService {
         faceData,
         {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          Accept: 'application/json',
         }
       );
 
@@ -187,17 +209,19 @@ class HikvisionService {
         success: true,
         data: response.data,
         status: response.status,
-        message: 'Face enrolled successfully to Hikvision device'
+        message: 'Face enrolled successfully to Hikvision device',
       };
-
     } catch (error) {
-      console.error('Hikvision enrollment error:', error.response?.data || error.message);
-      
+      console.error(
+        'Hikvision enrollment error:',
+        error.response?.data || error.message
+      );
+
       return {
         success: false,
         error: error.message,
         details: error.response?.data || null,
-        status: error.response?.status || null
+        status: error.response?.status || null,
       };
     }
   }
@@ -216,15 +240,14 @@ class HikvisionService {
         success: true,
         data: response.data,
         status: response.status,
-        message: 'Face deleted successfully from Hikvision device'
+        message: 'Face deleted successfully from Hikvision device',
       };
-
     } catch (error) {
       return {
         success: false,
         error: error.message,
         details: error.response?.data || null,
-        status: error.response?.status || null
+        status: error.response?.status || null,
       };
     }
   }
@@ -234,16 +257,19 @@ class HikvisionService {
    */
   async getDeviceCapabilities() {
     try {
-      const response = await this.makeAuthenticatedRequest('GET', '/ISAPI/Intelligent/FDLib/capabilities');
+      const response = await this.makeAuthenticatedRequest(
+        'GET',
+        '/ISAPI/Intelligent/FDLib/capabilities'
+      );
       return {
         success: true,
-        data: response.data
+        data: response.data,
       };
     } catch (error) {
       return {
         success: false,
         error: error.message,
-        details: error.response?.data || null
+        details: error.response?.data || null,
       };
     }
   }
