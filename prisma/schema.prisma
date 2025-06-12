@@ -1,0 +1,41 @@
+// Prisma schema for Supabase PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Per {
+  personaID Int       @id @default(autoincrement())
+  nombre    String?   @db.VarChar(255)
+  apellido  String?   @db.VarChar(255)
+  createdAt DateTime  @default(now()) @map("created_at")
+  faces     Perface[]
+
+  @@map("per")
+}
+
+model Face {
+  facialID     Int       @id @default(autoincrement())
+  templateData Bytes?
+  activo       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  personas     Perface[]
+
+  @@map("face")
+}
+
+model Perface {
+  personaID Int
+  facialID  Int
+  createdAt DateTime @default(now())
+  persona   Per      @relation(fields: [personaID], references: [personaID], onDelete: Cascade)
+  face      Face     @relation(fields: [facialID], references: [facialID], onDelete: Cascade)
+
+  @@id([personaID, facialID])
+  @@map("perface")
+}
